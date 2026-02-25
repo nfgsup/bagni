@@ -14,6 +14,7 @@
             <h2>Stato Attuale</h2>
             <div id="status-indicator" class="status-free">LIBERO</div>
             <p id="current-user-msg"></p>
+            <div id="timer-display" class="timer-box" style="display:none">00:00</div>
         </div>
 
         <div class="card">
@@ -23,7 +24,17 @@
                 <button id="book-btn">Aggiungi in Coda</button>
                 <button id="leave-btn" disabled>Ha Finito / È Ritornato</button>
             </div>
+            <div class="maintenance-box">
+                <button id="maintenance-btn" class="btn-warning">🛠️ Attiva Manutenzione</button>
+            </div>
             <p id="error-msg" class="error"></p>
+        </div>
+
+        <div class="card">
+            <h2>Statistiche (Top Utenti)</h2>
+            <ul id="stats-list">
+                <li>Caricamento...</li>
+            </ul>
         </div>
 
         <div class="card">

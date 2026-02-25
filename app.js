@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, onValue, push, set, remove, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, onValue, push, set, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB-SDrNNtjh3RK8hITT5TVVgvAyg8tmDtk",
@@ -11,141 +11,325 @@ const firebaseConfig = {
   appId: "1:215221000312:web:4c18be9c3a247d1f99758d"
 };
 
-let app;
-let db;
+class BagnoApp {
+    constructor() {
+        this.app = initializeApp(firebaseConfig);
+        this.db = getDatabase(this.app);
 
-try {
-    app = initializeApp(firebaseConfig);
-    db = getDatabase(app);
-} catch (e) {
-    console.error("Errore inizializzazione Firebase. Hai inserito la config?", e);
-    document.getElementById('error-msg').textContent = "Configura Firebase in app.js!";
-    document.getElementById('error-msg').style.display = 'block';
-}
+        this.refs = {
+            queue: ref(this.db, 'bagno_queue'),
+            maintenance: ref(this.db, 'bagno_maintenance'),
+            history: ref(this.db, 'bagno_history')
+        };
 
-const queueRef = ref(db, 'bagno_queue');
+        this.ui = {
+            statusEl: document.getElementById('status-indicator'),
+            currentUserMsg: document.getElementById('current-user-msg'),
+            usernameInput: document.getElementById('username'),
+            bookBtn: document.getElementById('book-btn'),
+            leaveBtn: document.getElementById('leave-btn'),
+            maintBtn: document.getElementById('maintenance-btn'),
+            queueListEl: document.getElementById('queue-list'),
+            queueCountEl: document.getElementById('queue-count'),
+            errorMsg: document.getElementById('error-msg'),
+            timerDisplay: document.getElementById('timer-display'),
+            statsList: document.getElementById('stats-list')
+        };
 
-let myKey = localStorage.getItem('bagno_my_key');
-let myName = localStorage.getItem('bagno_my_name');
+        this.state = {
+            queue: [],
+            maintenance: false,
+            currentOccupant: null,
+            stats: []
+        };
 
-const statusEl = document.getElementById('status-indicator');
-const currentUserMsg = document.getElementById('current-user-msg');
-const usernameInput = document.getElementById('username');
-const bookBtn = document.getElementById('book-btn');
-const leaveBtn = document.getElementById('leave-btn');
-const queueListEl = document.getElementById('queue-list');
-const queueCountEl = document.getElementById('queue-count');
-const errorMsg = document.getElementById('error-msg');
-
-if (myName) usernameInput.value = myName;
-
-onValue(queueRef, (snapshot) => {
-    const data = snapshot.val();
-    updateUI(data);
-});
-
-function updateUI(queueData) {
-    queueListEl.innerHTML = '';
-    
-    if (!queueData) {
-        setFreeStatus();
-        return;
+        this.init();
     }
 
-    const queueArray = Object.entries(queueData)
-        .map(([key, val]) => ({ key, ...val }))
-        .sort((a, b) => a.key.localeCompare(b.key));
-    
-    const currentOccupant = queueArray[0];
-    
-    setOccupiedStatus(currentOccupant.name);
+    init() {
+        // --- LISTENERS FIREBASE ---
 
-    queueCountEl.textContent = queueArray.length;
-    
-    queueArray.forEach((item, index) => {
-        const li = document.createElement('li');
-        const isMe = item.key === myKey;
+        // 1. Coda
+        onValue(this.refs.queue, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // Converti oggetto {key: val} in array [{key, ...val}]
+                this.state.queue = Object.entries(data)
+                    .map(([key, val]) => ({ key, ...val }))
+                    .sort((a, b) => a.key.localeCompare(b.key)); // Ordine cronologico
+            } else {
+                this.state.queue = [];
+            }
+            this.updateUI();
+        });
+
+        // 2. Stato Manutenzione
+        onValue(this.refs.maintenance, (snapshot) => {
+            this.state.maintenance = snapshot.val() || false;
+            this.updateUI();
+        });
+
+        // 3. Storico (per statistiche)
+        onValue(this.refs.history, (snapshot) => {
+            const data = snapshot.val();
+            this.processStats(data);
+        });
+
+        // --- EVENT LISTENERS DOM ---
+
+        // Aggiungi
+        this.ui.bookBtn.addEventListener('click', () => this.addToQueue());
         
-        let text = `${index + 1}. ${item.name} ${isMe ? '(TU)' : ''}`;
-        if (index === 0) text += ' - 🚽 IN BAGNO';
-        else text += ' - ⏳ In attesa';
+        // Rimuovi (Libera)
+        this.ui.leaveBtn.addEventListener('click', () => {
+            // Rimuovi SEMPRE l'occupante attuale (il primo della lista)
+            if (this.state.currentOccupant) {
+                this.removeFromQueue(this.state.currentOccupant);
+            }
+        });
 
-        li.textContent = text;
-        if (isMe) li.style.fontWeight = 'bold';
-        queueListEl.appendChild(li);
-    });
+        // Toggle Manutenzione
+        this.ui.maintBtn.addEventListener('click', () => {
+            set(this.refs.maintenance, !this.state.maintenance);
+        });
 
-    bookBtn.disabled = false;
-    bookBtn.textContent = "Aggiungi " + (usernameInput.value || "persona") + " in coda";
+        // Input label dinamica
+        this.ui.usernameInput.addEventListener('input', (e) => {
+            if (!this.ui.bookBtn.disabled) {
+                this.ui.bookBtn.textContent = `Aggiungi ${e.target.value.trim() || "persona"} in coda`;
+            }
+        });
 
-    if (queueArray.length > 0) {
-        leaveBtn.disabled = false;
-        leaveBtn.textContent = `${currentOccupant.name} è ritornato (Libera)`;
-        leaveBtn.style.backgroundColor = "#27ae60"; 
+        // Timer ogni secondo
+        setInterval(() => this.tickTimer(), 1000);
+    }
+
+    addToQueue() {
+        const name = this.ui.usernameInput.value.trim();
+        if (!name) {
+            this.showError("Inserisci un nome valido!");
+            return;
+        }
+        this.hideError();
+
+        // Push su Firebase
+        push(this.refs.queue, {
+            name: name,
+            timestamp: Date.now()
+        }).then(() => {
+            this.ui.usernameInput.value = '';
+            this.ui.bookBtn.textContent = "Aggiungi persona in coda";
+        }).catch(err => {
+            console.error(err);
+            this.showError("Errore di connessione.");
+        });
+    }
+
+    removeFromQueue(occupant) {
+        // 1. Salva nello storico (per le statistiche)
+        const endTime = Date.now();
+        const duration = endTime - occupant.timestamp;
+
+        push(this.refs.history, {
+            name: occupant.name,
+            startTime: occupant.timestamp,
+            endTime: endTime,
+            duration: duration
+        });
+
+        // 2. Rimuovi dalla coda attiva
+        remove(ref(this.db, `bagno_queue/${occupant.key}`))
+            .catch(err => {
+                console.error(err);
+                this.showError("Impossibile rimuovere dalla coda.");
+            });
+    }
+
+    processStats(historyData) {
+        if (!historyData) {
+            this.state.stats = [];
+            this.renderStats();
+            return;
+        }
+
+        const statsMap = {};
+
+        Object.values(historyData).forEach(entry => {
+            if (!entry.name) return;
+            // Normalizza nome (trim + lowercase per case-insensitive)
+            const normName = entry.name.trim().toLowerCase();
+            // Display Name (Capitalized)
+            const displayName = normName.charAt(0).toUpperCase() + normName.slice(1);
+
+            if (!statsMap[normName]) {
+                statsMap[normName] = { name: displayName, count: 0, totalMs: 0 };
+            }
+            statsMap[normName].count++;
+            statsMap[normName].totalMs += (entry.duration || 0);
+        });
+
+        // Converti in array e ordina per count decrescente
+        this.state.stats = Object.values(statsMap).sort((a, b) => b.count - a.count);
+        this.renderStats();
+    }
+
+    renderStats() {
+        this.ui.statsList.innerHTML = '';
         
-        leaveBtn.dataset.occupantKey = currentOccupant.key;
-    } else {
-        leaveBtn.disabled = true;
-        leaveBtn.textContent = "Nessuno in bagno";
-        leaveBtn.style.backgroundColor = "#95a5a6";
+        if (this.state.stats.length === 0) {
+            this.ui.statsList.innerHTML = '<li>Nessun dato ancora.</li>';
+            return;
+        }
+
+        // Mostra top 5
+        this.state.stats.slice(0, 5).forEach(stat => {
+            const li = document.createElement('li');
+            const totalMinutes = Math.round(stat.totalMs / 1000 / 60);
+            li.innerHTML = `<span><strong>${stat.name}</strong></span> <span>${stat.count} volte (${totalMinutes} min)</span>`;
+            this.ui.statsList.appendChild(li);
+        });
+    }
+
+    updateUI() {
+        const { queue, maintenance } = this.state;
+        
+        // Assegna currentOccupant (il primo della lista)
+        this.state.currentOccupant = queue.length > 0 ? queue[0] : null;
+
+        // Render Lista Coda
+        this.ui.queueListEl.innerHTML = '';
+        this.ui.queueCountEl.textContent = queue.length;
+
+        queue.forEach((item, index) => {
+            const li = document.createElement('li');
+            const date = new Date(item.timestamp);
+            const timeStr = date.getHours() + ':' + String(date.getMinutes()).padStart(2, '0');
+            
+            let text = `${index + 1}. ${item.name} <span class="timer">(${timeStr})</span>`;
+            
+            if (index === 0) {
+                // Il primo è in bagno
+                text += ' - 🚽 <b>DENTRO</b>';
+                li.style.backgroundColor = '#e8f6f3';
+                li.style.borderLeft = '4px solid #2ecc71';
+            } else {
+                text += ' - ⏳ In attesa';
+            }
+            
+            li.innerHTML = text;
+            this.ui.queueListEl.appendChild(li);
+        });
+
+        // Logica Stati UI (Manutenzione vs Occupato vs Libero)
+        if (maintenance) {
+            this.setModeMaintenance();
+        } else if (this.state.currentOccupant) {
+            this.setModeOccupied(this.state.currentOccupant);
+        } else {
+            this.setModeFree();
+        }
+    }
+
+    setModeFree() {
+        // UI
+        this.ui.statusEl.textContent = "LIBERO";
+        this.ui.statusEl.className = "status-free";
+        this.ui.statusEl.classList.remove('status-alert'); // Rimuovi red alert
+        this.ui.currentUserMsg.textContent = "Il bagno è libero!";
+        this.ui.timerDisplay.style.display = 'none';
+
+        // Bottoni
+        this.ui.bookBtn.disabled = false;
+        this.ui.bookBtn.textContent = `Aggiungi ${this.ui.usernameInput.value || "persona"} in coda`;
+        
+        this.ui.leaveBtn.disabled = true;
+        this.ui.leaveBtn.textContent = "Nessuno in bagno";
+        this.ui.leaveBtn.style.backgroundColor = "#95a5a6"; // Grigio
+
+        this.ui.maintBtn.textContent = "🛠️ Attiva Manutenzione";
+        this.ui.maintBtn.style.backgroundColor = "#f1c40f"; // Giallo
+    }
+
+    setModeOccupied(occupant) {
+        // UI
+        this.ui.statusEl.textContent = "OCCUPATO";
+        this.ui.statusEl.className = "status-occupied";
+        // Non rimuoviamo status-alert qui, lo gestisce il timer
+        
+        this.ui.currentUserMsg.textContent = `Occupato da: ${occupant.name}`;
+        this.ui.timerDisplay.style.display = 'block';
+
+        // Bottoni
+        this.ui.bookBtn.disabled = false; // Si può sempre aggiungere alla coda
+        this.ui.bookBtn.textContent = `Aggiungi ${this.ui.usernameInput.value || "persona"} in coda`;
+
+        this.ui.leaveBtn.disabled = false;
+        this.ui.leaveBtn.textContent = `${occupant.name} è ritornato (Libera)`;
+        this.ui.leaveBtn.style.backgroundColor = "#27ae60"; // Verde
+
+        this.ui.maintBtn.textContent = "🛠️ Attiva Manutenzione";
+        this.ui.maintBtn.style.backgroundColor = "#f1c40f"; // Giallo
+    }
+
+    setModeMaintenance() {
+        // UI
+        this.ui.statusEl.textContent = "MANUTENZIONE";
+        this.ui.statusEl.className = "status-maintenance";
+        this.ui.statusEl.classList.remove('status-alert');
+        this.ui.currentUserMsg.textContent = "Bagno fuori servizio 🛑";
+        this.ui.timerDisplay.style.display = 'none';
+
+        // Bottoni
+        this.ui.bookBtn.disabled = true;
+        this.ui.bookBtn.textContent = "In Manutenzione";
+
+        this.ui.leaveBtn.disabled = true;
+        this.ui.leaveBtn.textContent = "In Manutenzione";
+        this.ui.leaveBtn.style.backgroundColor = "#95a5a6";
+
+        this.ui.maintBtn.textContent = "✅ Termina Manutenzione";
+        this.ui.maintBtn.style.backgroundColor = "#2ecc71"; // Verde
+    }
+
+    tickTimer() {
+        // Se non c'è occupante o siamo in manutenzione, niente timer
+        if (!this.state.currentOccupant || this.state.maintenance) return;
+
+        const start = this.state.currentOccupant.timestamp;
+        const now = Date.now();
+        const diffInSeconds = Math.floor((now - start) / 1000);
+
+        const minutes = Math.floor(diffInSeconds / 60);
+        const seconds = diffInSeconds % 60;
+
+        const timeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        
+        this.ui.timerDisplay.textContent = timeString;
+
+        // Logica ALERT (> 5 minuti)
+        if (minutes >= 5) {
+            this.ui.statusEl.classList.add('status-alert');
+            this.ui.statusEl.textContent = "OCCUPATO DA TROPPO"; 
+            this.ui.timerDisplay.style.color = "#c0392b"; // Rosso
+        } else {
+            this.ui.statusEl.classList.remove('status-alert');
+            this.ui.statusEl.textContent = "OCCUPATO"; 
+            this.ui.timerDisplay.style.color = "#555";
+        }
+    }
+
+    showError(msg) {
+        this.ui.errorMsg.textContent = msg;
+        this.ui.errorMsg.style.display = 'block';
+        setTimeout(() => {
+            this.ui.errorMsg.style.display = 'none';
+        }, 3000);
+    }
+
+    hideError() {
+        this.ui.errorMsg.style.display = 'none';
     }
 }
 
-function setFreeStatus() {
-    statusEl.textContent = "LIBERO";
-    statusEl.className = "status-free";
-    currentUserMsg.textContent = "Il bagno è libero!";
-    queueCountEl.textContent = "0";
-    
-    bookBtn.disabled = false;
-    bookBtn.textContent = "Aggiungi in coda";
-    leaveBtn.disabled = true;
-    leaveBtn.textContent = "Nessuno in bagno";
-}
-
-function setOccupiedStatus(name) {
-    statusEl.textContent = "OCCUPATO";
-    statusEl.className = "status-occupied";
-    currentUserMsg.textContent = `Occupato da: ${name}`;
-}
-
-usernameInput.addEventListener('input', (e) => {
-    if(bookBtn.disabled === false) {
-        bookBtn.textContent = "Aggiungi " + (e.target.value || "persona") + " in coda";
-    }
-});
-
-bookBtn.addEventListener('click', () => {
-    const name = usernameInput.value.trim();
-    if (!name) {
-        errorMsg.textContent = "Inserisci il nome della persona!";
-        errorMsg.style.display = 'block';
-        return;
-    }
-    errorMsg.style.display = 'none';
-
-    const newEntryRef = push(queueRef);
-    set(newEntryRef, {
-        name: name,
-        timestamp: Date.now()
-    }).then(() => {
-        usernameInput.value = '';
-        bookBtn.textContent = "Aggiungi persona in coda";
-    }).catch(err => {
-        console.error(err);
-        errorMsg.textContent = "Errore di connessione.";
-        errorMsg.style.display = 'block';
-    });
-});
-
-leaveBtn.addEventListener('click', () => {
-    const keyToRemove = leaveBtn.dataset.occupantKey;
-
-    if (!keyToRemove) return;
-
-    const entryRef = ref(db, `bagno_queue/${keyToRemove}`);
-    remove(entryRef).catch(err => {
-        console.error(err);
-        alert("Errore durante la rimozione.");
-    });
-});
+// Avvio
+new BagnoApp();

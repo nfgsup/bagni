@@ -57,8 +57,52 @@ h2 {
     background-color: var(--success-color);
 }
 
-.status-occupied {
-    background-color: var(--danger-color);
+.status-maintenance {
+    background-color: #f39c12; /* Arancione */
+}
+
+.status-alert {
+    background-color: #c0392b !important; /* Rosso scuro allarme */
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+.timer-box {
+    font-size: 1.5rem;
+    font-weight: bold;
+    text-align: center;
+    margin-top: 10px;
+    color: #555;
+    font-family: monospace;
+}
+
+.maintenance-box {
+    margin-top: 10px;
+    border-top: 1px dashed #ddd;
+    padding-top: 10px;
+}
+
+.btn-warning {
+    background-color: #f1c40f;
+    color: #333;
+}
+
+#stats-list {
+    list-style: none;
+    padding: 0;
+    font-size: 0.9rem;
+}
+
+#stats-list li {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
 }
 
 input[type="text"] {
