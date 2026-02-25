@@ -92,19 +92,6 @@ h2 {
     color: #333;
 }
 
-#stats-list {
-    list-style: none;
-    padding: 0;
-    font-size: 0.9rem;
-}
-
-#stats-list li {
-    padding: 5px 0;
-    border-bottom: 1px solid #eee;
-    display: flex;
-    justify-content: space-between;
-}
-
 input[type="text"] {
     width: 100%;
     padding: 10px;

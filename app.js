@@ -18,8 +18,7 @@ class BagnoApp {
 
         this.refs = {
             queue: ref(this.db, 'bagno_queue'),
-            maintenance: ref(this.db, 'bagno_maintenance'),
-            history: ref(this.db, 'bagno_history')
+            maintenance: ref(this.db, 'bagno_maintenance')
         };
 
         this.ui = {
@@ -32,15 +31,13 @@ class BagnoApp {
             queueListEl: document.getElementById('queue-list'),
             queueCountEl: document.getElementById('queue-count'),
             errorMsg: document.getElementById('error-msg'),
-            timerDisplay: document.getElementById('timer-display'),
-            statsList: document.getElementById('stats-list')
+            timerDisplay: document.getElementById('timer-display')
         };
 
         this.state = {
             queue: [],
             maintenance: false,
-            currentOccupant: null,
-            stats: []
+            currentOccupant: null
         };
 
         this.init();
@@ -67,12 +64,6 @@ class BagnoApp {
         onValue(this.refs.maintenance, (snapshot) => {
             this.state.maintenance = snapshot.val() || false;
             this.updateUI();
-        });
-
-        // 3. Storico (per statistiche)
-        onValue(this.refs.history, (snapshot) => {
-            const data = snapshot.val();
-            this.processStats(data);
         });
 
         // --- EVENT LISTENERS DOM ---
@@ -132,68 +123,12 @@ class BagnoApp {
 
         push(this.refs.history, {
             name: occupant.name,
-            startTime: occupant.timestamp,
-            endTime: endTime,
-            duration: duration
-        });
-
-        // 2. Rimuovi dalla coda attiva
+           Rimuovi dalla coda attiva
         remove(ref(this.db, `bagno_queue/${occupant.key}`))
             .catch(err => {
                 console.error(err);
                 this.showError("Impossibile rimuovere dalla coda.");
-            });
-    }
-
-    processStats(historyData) {
-        if (!historyData) {
-            this.state.stats = [];
-            this.renderStats();
-            return;
-        }
-
-        const statsMap = {};
-
-        Object.values(historyData).forEach(entry => {
-            if (!entry.name) return;
-            // Normalizza nome (trim + lowercase per case-insensitive)
-            const normName = entry.name.trim().toLowerCase();
-            // Display Name (Capitalized)
-            const displayName = normName.charAt(0).toUpperCase() + normName.slice(1);
-
-            if (!statsMap[normName]) {
-                statsMap[normName] = { name: displayName, count: 0, totalMs: 0 };
-            }
-            statsMap[normName].count++;
-            statsMap[normName].totalMs += (entry.duration || 0);
-        });
-
-        // Converti in array e ordina per count decrescente
-        this.state.stats = Object.values(statsMap).sort((a, b) => b.count - a.count);
-        this.renderStats();
-    }
-
-    renderStats() {
-        this.ui.statsList.innerHTML = '';
-        
-        if (this.state.stats.length === 0) {
-            this.ui.statsList.innerHTML = '<li>Nessun dato ancora.</li>';
-            return;
-        }
-
-        // Mostra top 5
-        this.state.stats.slice(0, 5).forEach(stat => {
-            const li = document.createElement('li');
-            const totalMinutes = Math.round(stat.totalMs / 1000 / 60);
-            li.innerHTML = `<span><strong>${stat.name}</strong></span> <span>${stat.count} volte (${totalMinutes} min)</span>`;
-            this.ui.statsList.appendChild(li);
-        });
-    }
-
-    updateUI() {
-        const { queue, maintenance } = this.state;
-        
-        // Assegna currentOccupant (il primo della lista)
+            // Assegna currentOccupant (il primo della lista)
         this.state.currentOccupant = queue.length > 0 ? queue[0] : null;
 
         // Render Lista Coda
