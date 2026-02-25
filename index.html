@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prenotazione Bagno</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🚽 Prenotazione Bagno</h1>
+        
+        <div id="status-card" class="card">
+            <h2>Stato Attuale</h2>
+            <div id="status-indicator" class="status-free">LIBERO</div>
+            <p id="current-user-msg"></p>
+        </div>
+
+        <div class="card">
+            <h2>Gestione Admin</h2>
+            <input type="text" id="username" placeholder="Nome della persona" required>
+            <div class="actions">
+                <button id="book-btn">Aggiungi in Coda</button>
+                <button id="leave-btn" disabled>Ha Finito / È Ritornato</button>
+            </div>
+            <p id="error-msg" class="error"></p>
+        </div>
+
+        <div class="card">
+            <h2>Coda (<span id="queue-count">0</span>)</h2>
+            <ul id="queue-list">
+                
+            </ul>
+        </div>
+
+        <div class="watermark">
+            Created by Raffaele Coco
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
