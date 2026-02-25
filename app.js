@@ -50,10 +50,9 @@ class BagnoApp {
         onValue(this.refs.queue, (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                // Converti oggetto {key: val} in array [{key, ...val}]
                 this.state.queue = Object.entries(data)
                     .map(([key, val]) => ({ key, ...val }))
-                    .sort((a, b) => a.key.localeCompare(b.key)); // Ordine cronologico
+                    .sort((a, b) => a.key.localeCompare(b.key));
             } else {
                 this.state.queue = [];
             }
@@ -73,7 +72,6 @@ class BagnoApp {
         
         // Rimuovi (Libera)
         this.ui.leaveBtn.addEventListener('click', () => {
-            // Rimuovi SEMPRE l'occupante attuale (il primo della lista)
             if (this.state.currentOccupant) {
                 this.removeFromQueue(this.state.currentOccupant);
             }
@@ -103,7 +101,6 @@ class BagnoApp {
         }
         this.hideError();
 
-        // Push su Firebase
         push(this.refs.queue, {
             name: name,
             timestamp: Date.now()
@@ -117,18 +114,16 @@ class BagnoApp {
     }
 
     removeFromQueue(occupant) {
-        // 1. Salva nello storico (per le statistiche)
-        const endTime = Date.now();
-        const duration = endTime - occupant.timestamp;
-
-        push(this.refs.history, {
-            name: occupant.name,
-           Rimuovi dalla coda attiva
         remove(ref(this.db, `bagno_queue/${occupant.key}`))
             .catch(err => {
                 console.error(err);
                 this.showError("Impossibile rimuovere dalla coda.");
-            // Assegna currentOccupant (il primo della lista)
+            });
+    }
+
+    updateUI() {
+        const { queue, maintenance } = this.state;
+        
         this.state.currentOccupant = queue.length > 0 ? queue[0] : null;
 
         // Render Lista Coda
@@ -143,7 +138,6 @@ class BagnoApp {
             let text = `${index + 1}. ${item.name} <span class="timer">(${timeStr})</span>`;
             
             if (index === 0) {
-                // Il primo è in bagno
                 text += ' - 🚽 <b>DENTRO</b>';
                 li.style.backgroundColor = '#e8f6f3';
                 li.style.borderLeft = '4px solid #2ecc71';
@@ -155,7 +149,6 @@ class BagnoApp {
             this.ui.queueListEl.appendChild(li);
         });
 
-        // Logica Stati UI (Manutenzione vs Occupato vs Libero)
         if (maintenance) {
             this.setModeMaintenance();
         } else if (this.state.currentOccupant) {
@@ -166,55 +159,48 @@ class BagnoApp {
     }
 
     setModeFree() {
-        // UI
         this.ui.statusEl.textContent = "LIBERO";
         this.ui.statusEl.className = "status-free";
-        this.ui.statusEl.classList.remove('status-alert'); // Rimuovi red alert
+        this.ui.statusEl.classList.remove('status-alert');
         this.ui.currentUserMsg.textContent = "Il bagno è libero!";
         this.ui.timerDisplay.style.display = 'none';
 
-        // Bottoni
         this.ui.bookBtn.disabled = false;
         this.ui.bookBtn.textContent = `Aggiungi ${this.ui.usernameInput.value || "persona"} in coda`;
         
         this.ui.leaveBtn.disabled = true;
         this.ui.leaveBtn.textContent = "Nessuno in bagno";
-        this.ui.leaveBtn.style.backgroundColor = "#95a5a6"; // Grigio
+        this.ui.leaveBtn.style.backgroundColor = "#95a5a6";
 
         this.ui.maintBtn.textContent = "🛠️ Attiva Manutenzione";
-        this.ui.maintBtn.style.backgroundColor = "#f1c40f"; // Giallo
+        this.ui.maintBtn.style.backgroundColor = "#f1c40f";
     }
 
     setModeOccupied(occupant) {
-        // UI
         this.ui.statusEl.textContent = "OCCUPATO";
         this.ui.statusEl.className = "status-occupied";
-        // Non rimuoviamo status-alert qui, lo gestisce il timer
         
         this.ui.currentUserMsg.textContent = `Occupato da: ${occupant.name}`;
         this.ui.timerDisplay.style.display = 'block';
 
-        // Bottoni
-        this.ui.bookBtn.disabled = false; // Si può sempre aggiungere alla coda
+        this.ui.bookBtn.disabled = false;
         this.ui.bookBtn.textContent = `Aggiungi ${this.ui.usernameInput.value || "persona"} in coda`;
 
         this.ui.leaveBtn.disabled = false;
         this.ui.leaveBtn.textContent = `${occupant.name} è ritornato (Libera)`;
-        this.ui.leaveBtn.style.backgroundColor = "#27ae60"; // Verde
+        this.ui.leaveBtn.style.backgroundColor = "#27ae60";
 
         this.ui.maintBtn.textContent = "🛠️ Attiva Manutenzione";
-        this.ui.maintBtn.style.backgroundColor = "#f1c40f"; // Giallo
+        this.ui.maintBtn.style.backgroundColor = "#f1c40f";
     }
 
     setModeMaintenance() {
-        // UI
         this.ui.statusEl.textContent = "MANUTENZIONE";
         this.ui.statusEl.className = "status-maintenance";
         this.ui.statusEl.classList.remove('status-alert');
         this.ui.currentUserMsg.textContent = "Bagno fuori servizio 🛑";
         this.ui.timerDisplay.style.display = 'none';
 
-        // Bottoni
         this.ui.bookBtn.disabled = true;
         this.ui.bookBtn.textContent = "In Manutenzione";
 
@@ -223,11 +209,10 @@ class BagnoApp {
         this.ui.leaveBtn.style.backgroundColor = "#95a5a6";
 
         this.ui.maintBtn.textContent = "✅ Termina Manutenzione";
-        this.ui.maintBtn.style.backgroundColor = "#2ecc71"; // Verde
+        this.ui.maintBtn.style.backgroundColor = "#2ecc71";
     }
 
     tickTimer() {
-        // Se non c'è occupante o siamo in manutenzione, niente timer
         if (!this.state.currentOccupant || this.state.maintenance) return;
 
         const start = this.state.currentOccupant.timestamp;
@@ -241,11 +226,10 @@ class BagnoApp {
         
         this.ui.timerDisplay.textContent = timeString;
 
-        // Logica ALERT (> 5 minuti)
         if (minutes >= 5) {
             this.ui.statusEl.classList.add('status-alert');
             this.ui.statusEl.textContent = "OCCUPATO DA TROPPO"; 
-            this.ui.timerDisplay.style.color = "#c0392b"; // Rosso
+            this.ui.timerDisplay.style.color = "#c0392b";
         } else {
             this.ui.statusEl.classList.remove('status-alert');
             this.ui.statusEl.textContent = "OCCUPATO"; 
@@ -266,5 +250,4 @@ class BagnoApp {
     }
 }
 
-// Avvio
 new BagnoApp();
